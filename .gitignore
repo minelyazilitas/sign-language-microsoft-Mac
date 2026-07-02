@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+.DS_Store
+*.pyc
+
+data/raw/*
+data/processed/*
+data/landmarks/*
+models/*
+
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/landmarks/.gitkeep
+!models/.gitkeep
