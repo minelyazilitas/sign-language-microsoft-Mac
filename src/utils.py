@@ -62,7 +62,7 @@ def load_processed_data(prefix, data_dir=None):
     if not os.path.exists(x_path) or not os.path.exists(y_path):
         raise FileNotFoundError(
             f"{prefix} verisi bulunamadı: {data_dir}\n"
-            "Önce 'python src/preprocess.py' komutunu çalıştırın."
+            "Önce 'python src/extract_landmarks.py' komutunu çalıştırın."
         )
     
     X = np.load(x_path)
