@@ -2,21 +2,7 @@ venv/
 __pycache__/
 .DS_Store
 *.pyc
-
-# Claude ayar klasörü (GitHub'da görünmesin)
 .claude/
-
-# Yeniden üretilebilen veri listeleri (yerel yollar içerir)
-train.csv
-val.csv
-test.csv
-
-data/raw/*
-data/processed/*
-data/landmarks/*
-models/*
-
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/landmarks/.gitkeep
-!models/.gitkeep
+data/
+models/
+sonuclar/

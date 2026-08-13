@@ -1,85 +1,36 @@
-## Tr
+# SignFlow
 
-Türk İşaret Dili videolarından el landmark noktalarını çıkararak seçilen işaretleri tanımayı hedefleyen yapay zeka tabanlı bir demo projesidir.
+LSA64 veri seti (64 isaret) uzerinde calisan bir isaret dili tanima projesi.
+Videolardan el ve vucut noktalari cikarilir, bir BiLSTM modeli bu hareketlere
+bakarak isareti tahmin eder.
 
-Bu projede videolar önce karelere ayrılır, ardından MediaPipe ile el landmark noktaları çıkarılır. Elde edilen zamansal landmark verileri LSTM/BiLSTM gibi modellerle sınıflandırılarak videodaki işaret tahmin edilir.
+## Nasil calisir
 
-## Kullanılan Teknolojiler
-
-- Python
-- OpenCV
-- MediaPipe
-- NumPy
-- Pandas
-- Scikit-learn
-- TensorFlow / Keras
-- Streamlit
-
-## Proje Yapısı
-
-```text
-app/          Demo arayüzü
-data/         Dataset ve landmark verileri
-models/       Eğitilmiş model dosyaları
-notebooks/    Deneme ve analiz notebookları
-reports/      Rapor ve sonuç dosyaları
-src/          Ana Python kodları
-```
+1. `extract.py` - videolari 30 kareye indirir, her kareden 225 koordinat cikarir
+2. `train.py` - koordinatlarla BiLSTM modelini egitir
+3. `predict.py` - modeli test setinde dener
+4. `app.py` - basit bir demo arayuzu
 
 ## Kurulum
 
 ```bash
 python3.11 -m venv venv
 source venv/bin/activate
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-## Demo
+## Calistirma
 
 ```bash
-streamlit run app/streamlit_app.py
+python extract.py     # video -> koordinat (bir kez)
+python train.py       # modeli egit
+python predict.py     # test sonucu
+streamlit run app.py  # demo
 ```
 
----
+## Klasorler
 
-## En
-
-SignFlow Turkish is an AI-based demo project that aims to recognize selected Turkish Sign Language signs by extracting hand landmark points from videos.
-
-In this project, videos are first split into frames, then hand landmarks are extracted using MediaPipe. The extracted temporal landmark data is classified using models such as LSTM/BiLSTM to predict the sign in the video.
-
-## Technologies
-
-- Python
-- OpenCV
-- MediaPipe
-- NumPy
-- Pandas
-- Scikit-learn
-- TensorFlow / Keras
-- Streamlit
-
-## Project Structure
-
-```text
-app/          Demo interface
-data/         Dataset and landmark data
-models/       Trained model files
-notebooks/    Experiment and analysis notebooks
-reports/      Reports and result files
-src/          Main Python source code
-```
-
-## Installation
-
-```bash
-python3.11 -m venv venv
-source venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-## Run Demo
-
-```bash
-streamlit run app/streamlit_app.py
-```
+- `data/videos/` - LSA64 videolari
+- `data/islenmis/` - cikarilan koordinatlar (X_*.npy, y_*.npy)
+- `models/` - MediaPipe model dosyalari ve egitilmis model
+- `sonuclar/` - egitim grafikleri
