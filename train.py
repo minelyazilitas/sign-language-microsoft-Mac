@@ -1,0 +1,84 @@
+# BiLSTM modelini eğitir. Girdi: işlenmiş koordinatlar, çıktı: models/model.keras
+
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from tensorflow import keras
+from tensorflow.keras import layers
+
+from labels import NUM_CLASSES
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(ROOT, "data", "islenmis")
+MODEL_PATH = os.path.join(ROOT, "models", "model.keras")
+
+
+def build_model(input_shape):
+    model = keras.Sequential([
+        layers.Input(shape=input_shape),
+        layers.Masking(mask_value=0.0),
+        layers.Bidirectional(layers.LSTM(128, return_sequences=True, dropout=0.3)),
+        layers.Bidirectional(layers.LSTM(64, dropout=0.3)),
+        layers.Dense(128, activation="relu"),
+        layers.BatchNormalization(),
+        layers.Dropout(0.4),
+        layers.Dense(64, activation="relu"),
+        layers.Dropout(0.3),
+        layers.Dense(NUM_CLASSES, activation="softmax"),
+    ])
+    model.compile(optimizer=keras.optimizers.Adam(0.001),
+                  loss="sparse_categorical_crossentropy",
+                  metrics=["accuracy"])
+    return model
+
+
+def plot_history(history):
+    out = os.path.join(ROOT, "sonuclar")
+    os.makedirs(out, exist_ok=True)
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+    ax[0].plot(history.history["loss"], label="egitim")
+    ax[0].plot(history.history["val_loss"], label="dogrulama")
+    ax[0].set_title("loss"); ax[0].legend()
+    ax[1].plot(history.history["accuracy"], label="egitim")
+    ax[1].plot(history.history["val_accuracy"], label="dogrulama")
+    ax[1].set_title("accuracy"); ax[1].legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(out, "egitim.png"), dpi=120)
+    plt.close()
+
+
+def main():
+    X_train = np.load(os.path.join(DATA, "X_train.npy"))
+    y_train = np.load(os.path.join(DATA, "y_train.npy"))
+    X_val = np.load(os.path.join(DATA, "X_val.npy"))
+    y_val = np.load(os.path.join(DATA, "y_val.npy"))
+    print(f"egitim: {X_train.shape}, dogrulama: {X_val.shape}")
+
+    model = build_model((X_train.shape[1], X_train.shape[2]))
+    model.summary()
+
+    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+    # en iyi modeli kaydet, gelisme durursa erken dur, takilirsa ogrenme hizini dusur
+    callbacks = [
+        keras.callbacks.ModelCheckpoint(MODEL_PATH, monitor="val_accuracy",
+                                        save_best_only=True, mode="max"),
+        keras.callbacks.EarlyStopping(monitor="val_loss", patience=10,
+                                      restore_best_weights=True),
+        keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5,
+                                          patience=5, min_lr=1e-6),
+    ]
+
+    history = model.fit(X_train, y_train, validation_data=(X_val, y_val),
+                        epochs=50, batch_size=32, callbacks=callbacks)
+
+    plot_history(history)
+    print(f"en iyi dogrulama: {max(history.history['val_accuracy']):.3f}")
+    print(f"model kaydedildi: {MODEL_PATH}")
+
+
+if __name__ == "__main__":
+    main()
