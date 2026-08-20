@@ -73,6 +73,28 @@ def frame_to_features(frame_rgb, pose, hand):
     return np.concatenate([body, left, right])
 
 
+def normalize(seq):
+    # kisi kameraya yakin/uzak veya kayik dursun farketmesin diye
+    # her kareyi omuz ortasina gore kaydirir, omuz genisligine gore olcekler
+    pts = seq.reshape(NUM_FRAMES, 75, 3)
+    body = pts[:, :33, :]
+    left_sh, right_sh = body[:, 11, :], body[:, 12, :]
+    center = (left_sh + right_sh) / 2
+    frame_scale = np.linalg.norm(left_sh - right_sh, axis=-1)
+
+    detected_frame = np.any(body != 0, axis=(1, 2))
+    valid = frame_scale[detected_frame]
+    scale = np.median(valid) if len(valid) > 0 else 1.0
+    if scale < 1e-3:
+        scale = 1.0
+
+    detected_pt = np.any(pts != 0, axis=-1, keepdims=True)
+    norm = (pts - center[:, None, :]) / scale
+    norm = np.where(detected_pt, norm, 0)
+    norm[~detected_frame] = 0
+    return norm.reshape(NUM_FRAMES, NUM_FEATURES).astype(np.float32)
+
+
 def video_to_array(path, pose, hand):
     # bütün videoyu (30, 225) boyutunda bir diziye çevirir
     cap = cv2.VideoCapture(path)
@@ -102,7 +124,8 @@ def video_to_array(path, pose, hand):
     # video 30 kareden kısaysa kalan yerleri sıfırla doldururuz
     while len(seq) < NUM_FRAMES:
         seq.append(np.zeros(NUM_FEATURES, dtype=np.float32))
-    return np.array(seq[:NUM_FRAMES], dtype=np.float32)
+    arr = np.array(seq[:NUM_FRAMES], dtype=np.float32)
+    return normalize(arr)
 
 
 def main():
