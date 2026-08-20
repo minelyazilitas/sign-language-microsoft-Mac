@@ -21,8 +21,8 @@ def build_model(input_shape):
     model = keras.Sequential([
         layers.Input(shape=input_shape),
         layers.Masking(mask_value=0.0),
-        layers.Bidirectional(layers.LSTM(128, return_sequences=True, dropout=0.3)),
-        layers.Bidirectional(layers.LSTM(64, dropout=0.3)),
+        layers.Bidirectional(layers.LSTM(160, return_sequences=True, dropout=0.3)),
+        layers.Bidirectional(layers.LSTM(96, dropout=0.3)),
         layers.Dense(128, activation="relu"),
         layers.BatchNormalization(),
         layers.Dropout(0.4),
@@ -56,6 +56,11 @@ def main():
     y_train = np.load(os.path.join(DATA, "y_train.npy"))
     X_val = np.load(os.path.join(DATA, "X_val.npy"))
     y_val = np.load(os.path.join(DATA, "y_val.npy"))
+
+    # veri artirma: dolu noktalara kucuk gurultu ekleyip egitim setini ikiye katla (bos kareler 0 kalir)
+    noise = np.random.normal(0, 0.02, X_train.shape).astype(np.float32) * (X_train != 0)
+    X_train = np.concatenate([X_train, X_train + noise])
+    y_train = np.concatenate([y_train, y_train])
     print(f"egitim: {X_train.shape}, dogrulama: {X_val.shape}")
 
     model = build_model((X_train.shape[1], X_train.shape[2]))
@@ -66,14 +71,14 @@ def main():
     callbacks = [
         keras.callbacks.ModelCheckpoint(MODEL_PATH, monitor="val_accuracy",
                                         save_best_only=True, mode="max"),
-        keras.callbacks.EarlyStopping(monitor="val_loss", patience=10,
+        keras.callbacks.EarlyStopping(monitor="val_loss", patience=15,
                                       restore_best_weights=True),
         keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5,
-                                          patience=5, min_lr=1e-6),
+                                          patience=6, min_lr=1e-6),
     ]
 
     history = model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                        epochs=50, batch_size=32, callbacks=callbacks)
+                        epochs=100, batch_size=32, callbacks=callbacks)
 
     plot_history(history)
     print(f"en iyi dogrulama: {max(history.history['val_accuracy']):.3f}")
