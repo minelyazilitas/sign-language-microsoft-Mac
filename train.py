@@ -1,5 +1,3 @@
-# BiLSTM modelini eğitir. Girdi: işlenmiş koordinatlar, çıktı: models/model.keras
-
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -15,6 +13,36 @@ from labels import NUM_CLASSES
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(ROOT, "data", "islenmis")
 MODEL_PATH = os.path.join(ROOT, "models", "model.keras")
+
+
+def time_warp(X):
+    # zaman penceresini rastgele degistirip ayni isareti farkli ritimde gosteriyoruz
+    n, frames, _ = X.shape
+    out = np.zeros_like(X)
+    old_t = np.arange(frames)
+
+    for i in range(n):
+        span = np.random.uniform(0.8, 1.0) * (frames - 1)
+        start = np.random.uniform(0, (frames - 1) - span)
+        new_t = np.linspace(start, start + span, frames)
+
+        # konum sutunlari
+        for c in range(234):
+            out[i, :, c] = np.interp(new_t, old_t, X[i, :, c])
+        # maske sutunlari, 0/1 kalsin diye yuvarliyoruz
+        for c in range(702, 705):
+            out[i, :, c] = np.round(np.interp(new_t, old_t, X[i, :, c]))
+
+    # kareler kaydigi icin eski hiz/ivme degerlerini bastan hesapliyoruz
+    pos = out[:, :, 0:234]
+    vel = np.zeros_like(pos)
+    vel[:, 1:] = pos[:, 1:] - pos[:, :-1]
+    acc = np.zeros_like(pos)
+    acc[:, 1:] = vel[:, 1:] - vel[:, :-1]
+    out[:, :, 234:468] = vel
+    out[:, :, 468:702] = acc
+
+    return out
 
 
 def build_model(input_shape):
@@ -57,9 +85,10 @@ def main():
     X_val = np.load(os.path.join(DATA, "X_val.npy"))
     y_val = np.load(os.path.join(DATA, "y_val.npy"))
 
-    # veri artirma: dolu noktalara kucuk gurultu ekleyip egitim setini ikiye katla (bos kareler 0 kalir)
-    noise = np.random.normal(0, 0.02, X_train.shape).astype(np.float32) * (X_train != 0)
-    X_train = np.concatenate([X_train, X_train + noise])
+    # Ritmi degistirilmis bir kopya daha ekleyip egitim setini ikiye katliyoruz
+    X_warped = time_warp(X_train)
+    noise = np.random.normal(0, 0.02, X_warped.shape).astype(np.float32) * (X_warped != 0)
+    X_train = np.concatenate([X_train, X_warped + noise])
     y_train = np.concatenate([y_train, y_train])
     print(f"egitim: {X_train.shape}, dogrulama: {X_val.shape}")
 
@@ -67,7 +96,7 @@ def main():
     model.summary()
 
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    # en iyi modeli kaydet, gelisme durursa erken dur, takilirsa ogrenme hizini dusur
+    # en iyi modeli kaydeder, gelisme durursa erken durur (gereksiz ısınma/overfitting önleyici)
     callbacks = [
         keras.callbacks.ModelCheckpoint(MODEL_PATH, monitor="val_accuracy",
                                         save_best_only=True, mode="max"),
