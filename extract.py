@@ -210,14 +210,18 @@ def main():
     p.add_argument("--hedef", default="islenmis_ham", help="yazilacak yeni klasor")
     a = p.parse_args()
 
+    # klasör kontrolünü en başta yapıyoruz, çıkarım saatler sürüyor
     out_dir = os.path.join(ROOT, "data", a.hedef)
     if os.path.exists(out_dir):
         sys.exit(f"bu klasor zaten var: {out_dir}\nbaska bir ad ver: --hedef <ad>")
-    os.makedirs(out_dir)
 
     videos = sorted(glob.glob(os.path.join(VIDEO_DIR, "*.mp4")))
     print(f"{len(videos)} video bulundu")
     pose, hand = open_models()
+
+    # klasörü modeller yüklendikten sonra açıyoruz, yoksa hata olunca
+    # geride boş klasör kalıp ikinci denemeyi engelliyor
+    os.makedirs(out_dir)
 
     buckets = {"train": ([], []), "val": ([], []), "test": ([], [])}
 
