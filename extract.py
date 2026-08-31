@@ -1,5 +1,9 @@
 import os
+import sys
 import glob
+import json
+import datetime
+import argparse
 import numpy as np
 import cv2
 import mediapipe as mp
@@ -8,26 +12,24 @@ from mediapipe.tasks.python import vision
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 VIDEO_DIR = os.path.join(ROOT, "data", "videos")
-OUT_DIR = os.path.join(ROOT, "data", "islenmis")
 POSE_MODEL = os.path.join(ROOT, "models", "pose_landmarker_heavy.task")
 HAND_MODEL = os.path.join(ROOT, "models", "hand_landmarker.task")
 
 NUM_FRAMES = 30
-THRESHOLD = 0.3      # tespit esigi
-CROP_RADIUS = 120     # bilek etrafinda kac piksel kirpilacak
+THRESHOLD = 0.3      # tespit eşiği
+CROP_RADIUS = 400   # kırpılacak el alanı 
 
 POSE_LEFT_SHOULDER, POSE_RIGHT_SHOULDER = 11, 12
 POSE_LEFT_WRIST, POSE_RIGHT_WRIST = 15, 16
 HAND_WRIST = 0
-HAND_MIDDLE_BASE = 9   # el buyuklugu icin referans nokta
+HAND_MIDDLE_BASE = 9   # el büyüklüğü için referans nokta
 
-# toplam ozellik: konum(234) + hiz(234) + ivme(234) + maske(3)
+# toplam özellik: konum(234) + hız(234) + ivme(234) + maske(3)
 POS_SIZE = 234
 NUM_FEATURES = POS_SIZE * 3 + 3
 
 
 def which_set(signer):
-    # kisilere gore ayiriyoruz ki model test ettigimiz kisiyi hic gormemis olsun
     if signer <= 8:
         return "train"
     if signer == 9:
@@ -49,14 +51,14 @@ def open_models():
     return pose, hand
 
 
-def crop_and_retry(rgb, hand, wrist_x, wrist_y):
+def crop_and_retry(rgb, hand, wrist_x, wrist_y, wanted):
     H, W, _ = rgb.shape
     r = CROP_RADIUS
     x1, y1 = max(0, int(wrist_x - r)), max(0, int(wrist_y - r))
     x2, y2 = min(W, int(wrist_x + r)), min(H, int(wrist_y + r))
     if x2 - x1 < 20 or y2 - y1 < 20:
         return None
-    crop = rgb[y1:y2, x1:x2]
+    crop = np.ascontiguousarray(rgb[y1:y2, x1:x2])
     crop_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=crop)
     result = hand.detect(crop_img)
     if not result.hand_landmarks:
@@ -64,15 +66,16 @@ def crop_and_retry(rgb, hand, wrist_x, wrist_y):
 
     cw, ch = x2 - x1, y2 - y1
     for landmarks, side in zip(result.hand_landmarks, result.handedness):
+        if side[0].category_name != wanted:
+            continue
         pts = np.array([[x1 + n.x * cw, y1 + n.y * ch] for n in landmarks], dtype=np.float32)
         pts[:, 0] /= W
         pts[:, 1] /= H
-        return pts, side[0].category_name
+        return pts
     return None
 
 
 def frame_raw(rgb, pose, hand):
-    # bir kareden ham pose ve el noktalarini cikarir
     H, W, _ = rgb.shape
     image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
@@ -94,18 +97,14 @@ def frame_raw(rgb, pose, hand):
             pts = np.array([[n.x, n.y] for n in landmarks], dtype=np.float32)
             found[side[0].category_name] = pts
 
-    # eksik el varsa, o elin bilegi etrafini kirpip tekrar deniyoruz
     if pose_found:
-        if "Left" not in found:
-            result = crop_and_retry(rgb, hand, pose_xy[POSE_LEFT_WRIST, 0] * W,
-                                    pose_xy[POSE_LEFT_WRIST, 1] * H)
-            if result:
-                found[result[1]] = result[0]
-        if "Right" not in found:
-            result = crop_and_retry(rgb, hand, pose_xy[POSE_RIGHT_WRIST, 0] * W,
-                                    pose_xy[POSE_RIGHT_WRIST, 1] * H)
-            if result:
-                found[result[1]] = result[0]
+        for side, wrist in [("Left", POSE_LEFT_WRIST), ("Right", POSE_RIGHT_WRIST)]:
+            if side in found:
+                continue
+            pts = crop_and_retry(rgb, hand, pose_xy[wrist, 0] * W,
+                                 pose_xy[wrist, 1] * H, side)
+            if pts is not None:
+                found[side] = pts
 
     left_found = "Left" in found
     right_found = "Right" in found
@@ -118,7 +117,6 @@ def frame_raw(rgb, pose, hand):
 
 
 def normalize_frame(pose_xy, left_xy, right_xy, pose_found, left_found, right_found):
-    # Omuz ortasini bulup omuz genisligine boluyoruz ki kisi kameraya yakin da dursa uzak da ayni gorunsun
     if not pose_found:
         global_pos = np.zeros(150, dtype=np.float32)
         local_pos = np.zeros(84, dtype=np.float32)
@@ -144,7 +142,6 @@ def normalize_frame(pose_xy, left_xy, right_xy, pose_found, left_found, right_fo
 
     global_pos = np.concatenate([pose_n.flatten(), left_n.flatten(), right_n.flatten()])
 
-    # elin noktalarini kendi bilegine ve kendi buyuklugune gore yeniden hesapliyoruz
     def hand_local(pts, found):
         if not found:
             return np.zeros(42, dtype=np.float32)
@@ -200,7 +197,7 @@ def video_to_array(path, pose, hand):
     acceleration = np.zeros_like(pos)
     acceleration[1:] = velocity[1:] - velocity[:-1]
 
-    # hicbir sey bulunamayan karelerde hiz/ivme de sifir olsun (maskeleme calısabilsin diye)
+    # hiçbir şey bulunamayan karelerde hız/ivme de sıfır olsun (maskeleme çalışabilsin diye)
     empty = mask.sum(axis=1) == 0
     velocity[empty] = 0
     acceleration[empty] = 0
@@ -209,6 +206,15 @@ def video_to_array(path, pose, hand):
 
 
 def main():
+    p = argparse.ArgumentParser(description="videolardan landmark cikarir")
+    p.add_argument("--hedef", default="islenmis_ham", help="yazilacak yeni klasor")
+    a = p.parse_args()
+
+    out_dir = os.path.join(ROOT, "data", a.hedef)
+    if os.path.exists(out_dir):
+        sys.exit(f"bu klasor zaten var: {out_dir}\nbaska bir ad ver: --hedef <ad>")
+    os.makedirs(out_dir)
+
     videos = sorted(glob.glob(os.path.join(VIDEO_DIR, "*.mp4")))
     print(f"{len(videos)} video bulundu")
     pose, hand = open_models()
@@ -225,15 +231,26 @@ def main():
         if n % 50 == 0 or n == len(videos):
             print(f"islenen: {n}/{len(videos)}")
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    stats = {}
     for s, (X, y) in buckets.items():
         X = np.array(X, dtype=np.float32)
         y = np.array(y, dtype=np.int32)
-        np.save(os.path.join(OUT_DIR, f"X_{s}.npy"), X)
-        np.save(os.path.join(OUT_DIR, f"y_{s}.npy"), y)
-        print(f"{s}: {X.shape}")
+        np.save(os.path.join(out_dir, f"X_{s}.npy"), X)
+        np.save(os.path.join(out_dir, f"y_{s}.npy"), y)
+        detected = ((X[:, :, 703] + X[:, :, 704]) > 0).mean() * 100
+        stats[s] = {"sekil": list(X.shape), "el_tespiti": round(detected, 1)}
+        print(f"{s}: {X.shape}, el tespiti %{detected:.1f}")
 
-    print("bitti")
+    # bu klasorun hangi ayarlarla cikarildigini yanina yaziyoruz
+    meta = {"adim": "landmark cikarimi", "kaynak": "data/videos",
+            "tarih": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "kare": NUM_FRAMES, "esik": THRESHOLD,
+            "kirpma_yaricapi": CROP_RADIUS, "ozellik_sayisi": NUM_FEATURES,
+            "olcumler": stats}
+    with open(os.path.join(out_dir, "kunye.json"), "w") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
+    print(f"bitti -> data/{a.hedef}")
 
 
 if __name__ == "__main__":
