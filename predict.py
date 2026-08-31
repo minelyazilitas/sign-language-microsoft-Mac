@@ -1,8 +1,9 @@
-# Egitilmis modeli test setinde dener ve karisiklik matrisi cikarir.
+# Eğitilmiş modeli test setinde deneyip karışıklık matrisi çıkarır.
 
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+import argparse
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -23,7 +24,7 @@ def confusion_matrix(y_true, y_pred):
     return m
 
 
-def plot_confusion(m):
+def plot_confusion(m, name):
     out = os.path.join(ROOT, "sonuclar")
     os.makedirs(out, exist_ok=True)
     plt.figure(figsize=(14, 12))
@@ -35,26 +36,26 @@ def plot_confusion(m):
     plt.ylabel("gercek")
     plt.title("karisiklik matrisi")
     plt.tight_layout()
-    plt.savefig(os.path.join(out, "confusion.png"), dpi=120)
+    plt.savefig(os.path.join(out, f"confusion_{name}.png"), dpi=120)
     plt.close()
 
 
-def evaluate():
-    model = keras.models.load_model(MODEL_PATH)
-    X_test = np.load(os.path.join(DATA, "X_test.npy"))
-    y_test = np.load(os.path.join(DATA, "y_test.npy"))
+def evaluate(model_path, data_dir):
+    model = keras.models.load_model(model_path)
+    X_test = np.load(os.path.join(data_dir, "X_test.npy"))
+    y_test = np.load(os.path.join(data_dir, "y_test.npy"))
 
     pred = np.argmax(model.predict(X_test, verbose=0), axis=1)
     acc = (pred == y_test).mean()
     print(f"test basarisi: {acc*100:.1f}%")
 
-    # ilk 10 ornek
     for i in range(min(10, len(y_test))):
         mark = "dogru" if pred[i] == y_test[i] else "yanlis"
         print(f"  gercek: {label(y_test[i]):12s} tahmin: {label(pred[i]):12s} [{mark}]")
 
-    plot_confusion(confusion_matrix(y_test, pred))
-    print("karisiklik matrisi: sonuclar/confusion.png")
+    name = os.path.splitext(os.path.basename(model_path))[0]
+    plot_confusion(confusion_matrix(y_test, pred), name)
+    print(f"karisiklik matrisi: sonuclar/confusion_{name}.png")
 
 
 def predict_video(video_path):
@@ -68,4 +69,8 @@ def predict_video(video_path):
 
 
 if __name__ == "__main__":
-    evaluate()
+    p = argparse.ArgumentParser(description="bir modeli test verisinde dener")
+    p.add_argument("--veri", default="islenmis", help="data/ altindaki veri klasoru")
+    p.add_argument("--model", default="model.keras", help="models/ altindaki model dosyasi")
+    a = p.parse_args()
+    evaluate(os.path.join(ROOT, "models", a.model), os.path.join(ROOT, "data", a.veri))
